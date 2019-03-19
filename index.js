@@ -30,8 +30,8 @@ function Shopify(options) {
   if (
     !options ||
     !options.shopName ||
-    !options.accessToken && (!options.apiKey || !options.password) ||
-    options.accessToken && (options.apiKey || options.password)
+    (!options.accessToken && (!options.apiKey || !options.password)) ||
+    (options.accessToken && (options.apiKey || options.password))
   ) {
     throw new Error('Missing or invalid options');
   }
@@ -57,10 +57,14 @@ function Shopify(options) {
   };
 
   if (options.autoLimit) {
-    const conf = transform(options.autoLimit, (result, value, key) => {
-      if (key === 'calls') key = 'limit';
-      result[key] = value;
-    }, { bucketSize: 35 });
+    const conf = transform(
+      options.autoLimit,
+      (result, value, key) => {
+        if (key === 'calls') key = 'limit';
+        result[key] = value;
+      },
+      { bucketSize: 35 }
+    );
 
     this.request = stopcock(this.request, conf);
   }
@@ -98,13 +102,16 @@ Shopify.prototype.updateLimits = function updateLimits(header) {
  * @private
  */
 Shopify.prototype.request = function request(url, method, key, params) {
-  const options = assign({
-    headers: { 'User-Agent': `${pkg.name}/${pkg.version}` },
-    timeout: this.options.timeout,
-    json: true,
-    retries: 0,
-    method
-  }, url);
+  const options = assign(
+    {
+      headers: { 'User-Agent': `${pkg.name}/${pkg.version}` },
+      timeout: this.options.timeout,
+      json: true,
+      retries: 0,
+      method
+    },
+    url
+  );
 
   if (this.options.accessToken) {
     options.headers['X-Shopify-Access-Token'] = this.options.accessToken;
@@ -117,20 +124,29 @@ Shopify.prototype.request = function request(url, method, key, params) {
     options.body = body;
   }
 
-  return got(options).then(res => {
-    const body = res.body;
+  if (
+    this.options.enabledMultiCurrencies &&
+    method === 'GET' &&
+    url.path.includes('/admin/products')
+  ) {
+    options.headers['X-Shopify-Api-Features'] = 'include-presentment-prices';
+  }
 
-    this.updateLimits(res.headers['x-shopify-shop-api-call-limit']);
+  return got(options).then(
+    res => {
+      const body = res.body;
 
-    if (key) return body[key];
-    return body || {};
-  }, err => {
-    this.updateLimits(
-      err.response && err.response.headers['x-shopify-shop-api-call-limit']
-    );
+      this.updateLimits(res.headers['x-shopify-shop-api-call-limit']);
 
-    return Promise.reject(err);
-  });
+      if (key) return body[key];
+      return body || {};
+    },
+    err => {
+      this.updateLimits(err.response && err.response.headers['x-shopify-shop-api-call-limit']);
+
+      return Promise.reject(err);
+    }
+  );
 };
 
 //
